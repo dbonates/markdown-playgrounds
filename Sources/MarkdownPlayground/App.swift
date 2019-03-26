@@ -64,7 +64,8 @@ extension String {
     var lineOffsets: [String.Index] {
         var result = [startIndex]
         for i in indices {
-            if self[i] == "\n" { // todo check if we also need \r and \r\n
+            let c = self[i]
+            if c == "\n" || c == "\r" || c == "\r\n" {
                 result.append(index(after: i))
             }
         }
@@ -102,6 +103,7 @@ final class ViewController: NSViewController {
         observerToken = NotificationCenter.default.addObserver(forName: NSTextView.didChangeNotification, object: editor, queue: nil) { [unowned self] _ in
             self.parse()
         }
+        self.parse()        
     }
     
     func parse() {
@@ -120,6 +122,19 @@ final class ViewController: NSViewController {
     }
 }
 
+struct REPLBuffer {
+    private var buffer = Data()
+    
+    mutating func append(_ data: Data) -> String? {
+        buffer.append(data)
+        if let string = String(data: buffer, encoding: .utf8), string.last?.isNewline == true {
+            buffer.removeAll()
+            return string
+        }
+        return nil
+    }
+}
+
 final class REPL {
     private let process = Process()
     private let stdIn = Pipe()
@@ -135,17 +150,19 @@ final class REPL {
         process.standardOutput = stdOut.fileHandleForWriting
         process.standardError = stdErr.fileHandleForWriting
         
+        var stdOutBuffer = REPLBuffer()
         stdOutToken = NotificationCenter.default.addObserver(forName: .NSFileHandleDataAvailable, object: stdOut.fileHandleForReading, queue: nil, using: { [unowned self] note in
-            let data = self.stdOut.fileHandleForReading.availableData
-            let string = String(data: data, encoding: .utf8)!
-            onStdOut(string)
+            if let string = stdOutBuffer.append(self.stdOut.fileHandleForReading.availableData) {
+                onStdOut(string)
+            }
             self.stdOut.fileHandleForReading.waitForDataInBackgroundAndNotify()
         })
 
+        var stdErrBuffer = REPLBuffer()
         stdErrToken = NotificationCenter.default.addObserver(forName: .NSFileHandleDataAvailable, object: stdErr.fileHandleForReading, queue: nil, using: { [unowned self] note in
-            let data = self.stdErr.fileHandleForReading.availableData
-            let string = String(data: data, encoding: .utf8)!
-            onStdErr(string)
+            if let string = stdErrBuffer.append(self.stdErr.fileHandleForReading.availableData) {
+                onStdErr(string)
+            }
             self.stdErr.fileHandleForReading.waitForDataInBackgroundAndNotify()
         })
 
@@ -170,7 +187,8 @@ extension CommonMark.Node {
     }
 }
 
-
-let delegate = AppDelegate()
-let app = application(delegate: delegate)
-app.run()
+public func runApplication() {
+    let delegate = AppDelegate()
+    let app = application(delegate: delegate)
+    app.run()
+}
